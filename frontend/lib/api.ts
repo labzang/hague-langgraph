@@ -33,7 +33,7 @@ export interface RAGResponse {
 
 export const chatAPI = {
   async sendMessage(question: string, k: number = 3): Promise<RAGResponse> {
-    const response = await api.post<RAGResponse>('/rag', {
+    const response = await api.post<RAGResponse>('/rag/query', {
       question,
       k,
     })
