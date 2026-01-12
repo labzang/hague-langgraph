@@ -42,19 +42,19 @@ def create_midm_local_llm(model_dir: Optional[str] = None) -> LLMType:
     if not model_dir.exists():
         raise FileNotFoundError(f"Midm 모델 디렉터리를 찾을 수 없습니다: {model_dir}")
 
-    print(f"🤖 Midm-2.0-Mini-Instruct 모델 로딩 중: {model_dir}")
+    print(f"[AI] Midm-2.0-Mini-Instruct 모델 로딩 중: {model_dir}")
 
     # GPU 사용 가능 여부 확인
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"🖥️ 사용 디바이스: {device}")
+    print(f"[디바이스] 사용 디바이스: {device}")
 
     try:
         # 토크나이저 로드
-        print("📝 토크나이저 로딩 중...")
+        print("[로딩] 토크나이저 로딩 중...")
         tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
 
         # 모델 로드 (Midm 모델 특성에 맞게 설정)
-        print("🧠 모델 로딩 중...")
+        print("[로딩] 모델 로딩 중...")
         model = AutoModelForCausalLM.from_pretrained(
             str(model_dir),
             torch_dtype="auto",  # 자동 dtype 선택
@@ -63,7 +63,7 @@ def create_midm_local_llm(model_dir: Optional[str] = None) -> LLMType:
         )
 
         # 파이프라인 생성 (Midm 모델에 최적화된 설정)
-        print("⚙️ 파이프라인 생성 중...")
+        print("[설정] 파이프라인 생성 중...")
         pipe = pipeline(
             "text-generation",
             model=model,
@@ -78,11 +78,11 @@ def create_midm_local_llm(model_dir: Optional[str] = None) -> LLMType:
         # LangChain 래퍼로 변환
         llm = HuggingFacePipeline(pipeline=pipe)
 
-        print("✅ Midm-2.0-Mini-Instruct 모델 로딩 완료!")
+        print("[완료] Midm-2.0-Mini-Instruct 모델 로딩 완료!")
         return llm
 
     except Exception as e:
-        print(f"❌ Midm 모델 로딩 중 오류 발생: {e}")
+        print(f"[오류] Midm 모델 로딩 중 오류 발생: {e}")
         raise
 
 

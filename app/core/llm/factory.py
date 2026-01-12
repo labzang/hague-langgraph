@@ -26,20 +26,20 @@ def create_llm_from_config(settings: Settings) -> Optional[LLMType]:
 
     if provider == "openai":
         if not settings.openai_api_key:
-            print("⚠️ OpenAI API 키가 설정되지 않았습니다.")
+            print("[경고] OpenAI API 키가 설정되지 않았습니다.")
             return None
-        print("🤖 OpenAI LLM을 사용합니다.")
+        print("[AI] OpenAI LLM을 사용합니다.")
         return create_openai_chat_llm()
 
     elif provider == "korean_local":
         if not settings.local_model_dir:
-            print("⚠️ LOCAL_MODEL_DIR이 설정되지 않았습니다.")
+            print("[경고] LOCAL_MODEL_DIR이 설정되지 않았습니다.")
             return None
-        print(f"🏠 로컬 한국어 모델을 사용합니다: {settings.local_model_dir}")
+        print(f"[로컬] 로컬 한국어 모델을 사용합니다: {settings.local_model_dir}")
         return create_local_korean_llm(settings.local_model_dir)
 
     elif provider == "midm":
-        print("🤖 Midm-2.0-Mini-Instruct 모델을 사용합니다.")
+        print("[AI] Midm-2.0-Mini-Instruct 모델을 사용합니다.")
         # LOCAL_MODEL_DIR이 설정되어 있으면 해당 경로 사용, 없으면 기본 경로
         model_dir = settings.local_model_dir if settings.local_model_dir else None
         return create_midm_local_llm(model_dir)
