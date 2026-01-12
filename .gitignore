@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Docker
+*.log
+
+# Next.js
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local model weights (large files, not for Git)
+app/model/midm/
+app/model/
+*.safetensors
+*.bin
+*.pt
+*.onnx
+*.pem
+# SSH keys
+*.pem
+deploy_key
+deploy_key.pub
+ec2_deploy_key
+ec2_deploy_key.pub

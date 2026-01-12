@@ -1,0 +1,271 @@
+name: Deploy app to EC2
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "app/**" # app 폴더 변경시에만 실행
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  deploy:
+    name: Deploy app to EC2
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: app # 모든 run 명령은 app/ 기준으로 실행
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt   # app/requirements.txt 기준
+
+      - name: Run tests (optional)
+        run: |
+          # 테스트가 있다면 실행
+          # pytest tests/ || true
+          echo "Tests skipped for now"
+
+      - name: Configure SSH
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # SSH 키 검증
+          if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "❌ EC2_SSH_KEY secret이 설정되지 않았습니다."
+            exit 1
+          fi
+
+          # SSH 키 파일 생성
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          # SSH 키 형식 검증
+          if ! grep -q "BEGIN" ~/.ssh/deploy_key; then
+            echo "❌ SSH 키 형식이 올바르지 않습니다."
+            exit 1
+          fi
+
+          # 호스트 검증
+          if [ -z "${{ secrets.EC2_HOST }}" ]; then
+            echo "❌ EC2_HOST secret이 설정되지 않았습니다."
+            exit 1
+          fi
+
+          # known_hosts에 호스트 추가
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          chmod 644 ~/.ssh/known_hosts
+
+          echo "✅ SSH 설정 완료"
+
+      - name: Deploy app to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -e
+
+          # 환경 변수 검증
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_USER" ]; then
+            echo "❌ EC2_HOST 또는 EC2_USER secret이 설정되지 않았습니다."
+            exit 1
+          fi
+
+          echo "📤 app 폴더를 EC2에 배포 중..."
+
+          # app 폴더 전체를 EC2에 동기화 (rsync 사용)
+          # 현재 작업 디렉터리가 app/ 이므로 . 을 사용
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            --exclude='venv' \
+            --exclude='*.log' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o UserKnownHostsFile=~/.ssh/known_hosts" \
+            . $EC2_USER@$EC2_HOST:/home/ubuntu/rag-app/ || {
+            echo "❌ 배포 실패"
+            exit 1
+          }
+
+          echo "🚀 EC2에서 애플리케이션 설정 및 시작..."
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              $EC2_USER@$EC2_HOST << 'ENDSSH'
+            set -e
+
+            APP_DIR="/home/ubuntu/rag-app"
+            cd "$APP_DIR"
+
+            # Python 버전 확인
+            echo "🔍 Python 버전 확인..."
+            if command -v python3.11 &> /dev/null; then
+              PYTHON_CMD=python3.11
+              echo "✅ Python 3.11 발견"
+            elif command -v python3 &> /dev/null; then
+              PYTHON_CMD=python3
+              echo "✅ Python3 발견: $(python3 --version)"
+            else
+              echo "❌ Python을 찾을 수 없습니다."
+              exit 1
+            fi
+
+            # 가상 환경 설정
+            if [ ! -d "venv" ]; then
+              echo "🐍 가상 환경 생성 중..."
+              # venv 모듈 확인 (없으면 설치)
+              if ! $PYTHON_CMD -m venv --help &> /dev/null; then
+                echo "⚠️ venv 모듈이 없습니다. 설치 중..."
+                sudo apt-get update -qq
+                sudo apt-get install -y python3-venv || {
+                  echo "❌ python3-venv 설치 실패"
+                  exit 1
+                }
+              fi
+
+              # 가상 환경 생성
+              $PYTHON_CMD -m venv venv || {
+                echo "❌ 가상 환경 생성 실패"
+                echo "Python 버전: $($PYTHON_CMD --version)"
+                exit 1
+              }
+
+              # 가상 환경 생성 확인
+              if [ ! -f "venv/bin/activate" ]; then
+                echo "❌ 가상 환경 생성 실패 (activate 파일 없음)"
+                echo "venv 디렉터리 내용:"
+                ls -la venv/ || true
+                exit 1
+              fi
+              echo "✅ 가상 환경 생성 완료"
+            else
+              echo "✅ 기존 가상 환경 사용"
+              # 기존 venv가 손상되었을 수 있으므로 확인
+              if [ ! -f "venv/bin/activate" ]; then
+                echo "⚠️ 기존 venv가 손상되었습니다. 재생성합니다..."
+                rm -rf venv
+                $PYTHON_CMD -m venv venv || {
+                  echo "❌ 가상 환경 재생성 실패"
+                  exit 1
+                }
+              fi
+            fi
+
+            echo "📦 의존성 설치..."
+            # 가상 환경 활성화
+            source venv/bin/activate || {
+              echo "❌ 가상 환경 활성화 실패"
+              echo "venv 디렉터리 내용:"
+              ls -la venv/bin/ || true
+              exit 1
+            }
+
+            # pip 업그레이드
+            pip install --upgrade pip
+
+            # requirements.txt 확인
+            if [ ! -f "requirements.txt" ]; then
+              echo "❌ requirements.txt 파일을 찾을 수 없습니다."
+              exit 1
+            fi
+
+            # 의존성 설치
+            pip install -r requirements.txt
+
+            # 환경 변수 파일 확인
+            if [ ! -f ".env" ]; then
+              echo "⚠️ .env 파일이 없습니다."
+              if [ -f "env.example" ]; then
+                cp env.example .env
+                echo "📝 env.example을 .env로 복사했습니다. 환경 변수를 설정하세요."
+              fi
+            fi
+
+            # systemd 서비스 재시작 또는 시작
+            if systemctl list-unit-files | grep -q "rag-app.service"; then
+              if systemctl is-active --quiet rag-app; then
+                echo "🔄 systemd 서비스 재시작..."
+                sudo systemctl restart rag-app
+              else
+                echo "▶️ systemd 서비스 시작..."
+                sudo systemctl start rag-app
+              fi
+              sudo systemctl status rag-app --no-pager || true
+            else
+              echo "⚠️ systemd 서비스가 없습니다. 직접 실행합니다..."
+              # 기존 프로세스 종료
+              pkill -f "uvicorn app.main:app" || true
+              sleep 2
+
+              # 가상 환경이 활성화된 상태에서 실행
+              # venv/bin/uvicorn 경로 확인
+              if [ ! -f "venv/bin/uvicorn" ]; then
+                echo "❌ venv/bin/uvicorn을 찾을 수 없습니다."
+                echo "venv/bin 내용:"
+                ls -la venv/bin/ || true
+                exit 1
+              fi
+
+              # 새로 시작 (가상 환경 활성화 상태 유지)
+              nohup venv/bin/uvicorn app.main:app \
+                  --host 0.0.0.0 \
+                  --port 8000 \
+                  --workers 2 \
+                  > app.log 2>&1 &
+
+              echo $! > app.pid
+              echo "✅ 애플리케이션이 백그라운드에서 시작되었습니다. PID: $(cat app.pid)"
+            fi
+
+            # 헬스체크
+            echo "🏥 헬스체크..."
+            sleep 5
+
+            for i in {1..10}; do
+              if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+                echo "✅ 헬스체크 성공!"
+                exit 0
+              fi
+              echo "⏳ 헬스체크 대기 중... ($i/10)"
+              sleep 2
+            done
+
+            echo "❌ 헬스체크 실패!"
+            exit 1
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          set -e
+          sleep 10
+
+          EC2_HOST="${{ secrets.EC2_HOST }}"
+
+          # HTTP로 헬스체크 시도 (HTTPS는 나중에 설정 가능)
+          if curl -f --max-time 10 http://$EC2_HOST:8000/health 2>/dev/null; then
+            echo "✅ 헬스체크 성공 (포트 8000)"
+          elif curl -f --max-time 10 http://$EC2_HOST/health 2>/dev/null; then
+            echo "✅ 헬스체크 성공 (포트 80)"
+          else
+            echo "⚠️ 외부 헬스체크 실패 (방화벽 설정 확인 필요)"
+            echo "   EC2 보안 그룹에서 포트 8000 또는 80이 열려있는지 확인하세요."
+            # 헬스체크 실패해도 배포는 성공으로 간주 (내부적으로는 작동할 수 있음)
+          fi

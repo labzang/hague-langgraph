@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+/* 스크롤바 스타일링 */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* 입력 필드 포커스 스타일 */
+input:focus {
+  outline: none;
+}
+
+input[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+input:not([disabled]) {
+  cursor: text;
+}
+
+/* 입력 필드 포인터 이벤트 보장 */
+input[type="text"] {
+  pointer-events: auto !important;
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-tap-highlight-color: transparent;
+  color: #111827 !important; /* text-gray-900 */
+}
+
+input[type="text"]:focus {
+  pointer-events: auto !important;
+  outline: none !important;
+}
+
+input[type="text"]:not([disabled]) {
+  cursor: text !important;
+}
+
+/* 입력 영역이 다른 요소에 가려지지 않도록 */
+.chat-input-area {
+  pointer-events: auto !important;
+  z-index: 9999 !important;
+}
+
+.chat-input-area * {
+  pointer-events: auto !important;
+}
+
+/* 메시지 영역이 입력 영역을 덮지 않도록 */
+.chat-messages {
+  pointer-events: auto;
+  position: relative;
+  z-index: 1;
+}
+
+/* 입력 영역 스타일 */
+.chat-input-area {
+  flex-shrink: 0;
+}
+
+.chat-input-area input {
+  pointer-events: auto !important;
+  color: #111827 !important; /* text-gray-900 */
+}
+
+.chat-input-area input::placeholder {
+  color: #9ca3af !important; /* text-gray-400 */
+}
+
