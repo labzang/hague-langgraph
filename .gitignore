@@ -45,6 +45,9 @@ app/model/
 *.pt
 *.onnx
 *.pem
+
+# Data files (large datasets, not for Git)
+app/data/
 # SSH keys
 *.pem
 deploy_key

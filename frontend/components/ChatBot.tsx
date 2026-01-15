@@ -10,7 +10,7 @@ export default function ChatBot() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: '안녕하세요! RAG 챗봇입니다. 무엇이 궁금하신가요?',
+      content: '스팸메일 판독기?',
       timestamp: new Date(),
     },
   ])

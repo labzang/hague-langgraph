@@ -29,7 +29,7 @@ from app.api.routes import search
 
 # 로컬 모듈 imports
 from app.config import settings
-from app.router import chat_router
+from app.router import chat_router, mcp_router
 
 # 환경 변수 로드
 env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -530,6 +530,8 @@ async def add_documents(request: DocumentListRequest):
 try:
     app.include_router(search.router)
     app.include_router(chat_router.router)
+    app.include_router(mcp_router.router)
+    print("[성공] MCP 라우터 포함 완료")
 except Exception as e:
     print(f"[경고] 라우터 포함 실패: {e}")
 
