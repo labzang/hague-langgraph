@@ -38,7 +38,6 @@ frontend/.env*.local
 Thumbs.db
 
 # Local model weights (large files, not for Git)
-app/model/midm/
 app/model/
 *.safetensors
 *.bin
