@@ -11,6 +11,7 @@ import os
 import traceback
 from contextlib import asynccontextmanager
 from typing import List, Optional
+from urllib.parse import urlparse
 
 import psycopg2
 from dotenv import load_dotenv
@@ -24,13 +25,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from pydantic import BaseModel
 
-from app.schemas import HealthResponse
-from app.routers import search_router
-
-# 로컬 모듈 imports
-from app.config import settings
-from app.routers import chat_router, mcp_router, search_router
-from app.routers import orchestrator_router
+# DB 테스트를 위한 설정 import
+from app.core.config import settings
 
 # 환경 변수 로드
 env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -84,6 +80,109 @@ class SimpleEmbeddings(Embeddings):
 
 
 # ===== 유틸리티 함수들 =====
+def test_neon_db_connection() -> dict:
+    """Neon DB 연결 테스트 및 상세 정보 반환."""
+    import time
+
+    print("\n" + "="*60)
+    print("[테스트] Neon DB 연결 테스트 시작")
+    print("="*60)
+
+    # 설정 정보 출력
+    print(f"[설정] DATABASE_URL 환경변수 존재 여부: {settings.database_url_env is not None}")
+    if settings.database_url_env:
+        # 보안을 위해 URL 일부만 표시
+        parsed_url = urlparse(settings.database_url_env)
+        masked_url = f"{parsed_url.scheme}://{parsed_url.hostname}:{parsed_url.port}{parsed_url.path}"
+        print(f"[설정] DATABASE_URL (마스킹됨): {masked_url}")
+    else:
+        print(f"[설정] POSTGRES_HOST: {settings.postgres_host}")
+        print(f"[설정] POSTGRES_PORT: {settings.postgres_port}")
+        print(f"[설정] POSTGRES_DB: {settings.postgres_db}")
+        print(f"[설정] POSTGRES_USER: {settings.postgres_user}")
+
+    # 최종 연결 문자열 (보안을 위해 일부만 표시)
+    final_url = settings.database_url
+    parsed_final = urlparse(final_url)
+    masked_final = f"{parsed_final.scheme}://{parsed_final.hostname}:{parsed_final.port}{parsed_final.path}"
+    print(f"[설정] 최종 연결 문자열 (마스킹됨): {masked_final}")
+    print("-"*60)
+
+    max_retries = 5
+    retry_count = 0
+
+    while retry_count < max_retries:
+        try:
+            print(f"[시도] 연결 시도 {retry_count + 1}/{max_retries}...")
+            conn = psycopg2.connect(settings.database_url)
+
+            # 연결 성공 시 추가 정보 확인
+            cursor = conn.cursor()
+            cursor.execute("SELECT version();")
+            db_version = cursor.fetchone()[0]
+            print(f"[성공] PostgreSQL 버전: {db_version}")
+
+            # pgvector 확장 확인
+            try:
+                cursor.execute("SELECT * FROM pg_extension WHERE extname = 'vector';")
+                vector_ext = cursor.fetchone()
+                if vector_ext:
+                    print("[성공] pgvector 확장이 설치되어 있습니다.")
+                else:
+                    print("[경고] pgvector 확장이 설치되어 있지 않습니다.")
+            except Exception as e:
+                print(f"[경고] pgvector 확장 확인 실패: {e}")
+
+            cursor.close()
+            conn.close()
+
+            print("="*60)
+            print("[성공] ✅ Neon DB 연결 테스트 성공!")
+            print("="*60 + "\n")
+
+            return {
+                "status": "success",
+                "database_version": db_version,
+                "connection_string": masked_final,
+                "has_vector_extension": vector_ext is not None if 'vector_ext' in locals() else False
+            }
+
+        except psycopg2.OperationalError as exc:
+            retry_count += 1
+            error_msg = str(exc)
+            print(f"[실패] 연결 실패 ({retry_count}/{max_retries}): {error_msg}")
+
+            if retry_count < max_retries:
+                print(f"[대기] 2초 후 재시도...")
+                time.sleep(2)
+            else:
+                print("="*60)
+                print("[실패] ❌ Neon DB 연결 테스트 실패!")
+                print(f"[오류] 마지막 오류: {error_msg}")
+                print("="*60 + "\n")
+
+                return {
+                    "status": "failed",
+                    "error": error_msg,
+                    "retries": retry_count
+                }
+
+        except Exception as exc:
+            print("="*60)
+            print(f"[오류] 예상치 못한 오류 발생: {exc}")
+            print("="*60 + "\n")
+            return {
+                "status": "error",
+                "error": str(exc)
+            }
+
+    return {
+        "status": "failed",
+        "error": "최대 재시도 횟수 초과",
+        "retries": max_retries
+    }
+
+
 def wait_for_postgres() -> bool:
     """PostgreSQL 데이터베이스가 준비될 때까지 대기."""
     import time
@@ -200,50 +299,21 @@ def setup_rag_chain(vectorstore):
             | StrOutputParser()
         )
     else:
-        # 로컬 Midm 모델 사용
-        try:
-            from app.core.llm.providers.midm_local import create_midm_local_llm
+        # 더미 RAG 함수
+        print("[더미] 더미 RAG 함수를 사용합니다.")
 
-            llm = create_midm_local_llm()
-            print("[AI] 로컬 Midm 모델을 사용합니다.")
+        def dummy_rag_function(question: str) -> str:
+            """더미 RAG 함수"""
+            docs = retriever.invoke(question)
+            context = "\n".join([f"- {doc.page_content}" for doc in docs])
 
-            def rag_with_midm(question: str) -> str:
-                """Midm 모델을 사용한 RAG 함수"""
-                docs = retriever.invoke(question)
-                context = "\n\n".join([doc.page_content for doc in docs])
-
-                # Midm 모델용 프롬프트
-                prompt_text = f"""다음 컨텍스트를 바탕으로 질문에 답해주세요:
-
-컨텍스트:
-{context}
-
-질문: {question}
-
-답변: """
-
-                response = llm.invoke(prompt_text)
-                return response
-
-            rag_chain = RunnableLambda(rag_with_midm)
-
-        except Exception as e:
-            print(f"[경고] Midm 모델 로드 실패: {e}")
-            print("[더미] 더미 RAG 함수를 사용합니다.")
-
-            # 더미 RAG 함수
-            def dummy_rag_function(question: str) -> str:
-                """더미 RAG 함수"""
-                docs = retriever.invoke(question)
-                context = "\n".join([f"- {doc.page_content}" for doc in docs])
-
-                return f"""[검색] 검색된 관련 문서들:
+            return f"""[검색] 검색된 관련 문서들:
 {context}
 
 [더미응답] 위의 문서들이 '{question}' 질문과 관련된 내용입니다.
-실제 AI 응답을 받으려면 OpenAI API 키를 설정하거나 Midm 모델을 올바르게 설치해주세요."""
+실제 AI 응답을 받으려면 OpenAI API 키를 설정해주세요."""
 
-            rag_chain = RunnableLambda(dummy_rag_function)
+        rag_chain = RunnableLambda(dummy_rag_function)
 
     return rag_chain
 
@@ -253,7 +323,13 @@ def setup_rag_chain(vectorstore):
 async def lifespan(app: FastAPI):
     """애플리케이션 시작/종료 시 실행되는 함수."""
     # 시작 시
+    print("\n" + "="*60)
     print("[시작] FastAPI RAG 애플리케이션 시작 중...")
+    print("="*60 + "\n")
+
+    # Neon DB 연결 테스트
+    test_result = test_neon_db_connection()
+    app.state.db_test_result = test_result
 
     # 데이터베이스 연결 시도
     db_connected = wait_for_postgres()
@@ -355,8 +431,8 @@ async def root() -> dict:
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["health"])
-async def health() -> HealthResponse:
+@app.get("/health", tags=["health"])
+async def health() -> dict:
     """헬스체크 엔드포인트."""
     try:
         conn = psycopg2.connect(settings.database_url)
@@ -365,12 +441,12 @@ async def health() -> HealthResponse:
     except Exception:
         db_status = "disconnected"
 
-    return HealthResponse(
-        status="healthy",
-        version="1.0.0",
-        database=db_status,
-        openai_configured=os.getenv("OPENAI_API_KEY") is not None,
-    )
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "database": db_status,
+        "openai_configured": os.getenv("OPENAI_API_KEY") is not None,
+    }
 
 
 @app.post("/retrieve", tags=["rag"])
@@ -451,51 +527,9 @@ async def api_chain(request: QueryRequest):
 
 @app.post("/api/graph", tags=["rag"])
 async def api_graph(request: QueryRequest):
-    """채팅 에이전트 API - /api/graph 엔드포인트 (graph.py 대체)."""
-    try:
-        print(f"[ChatAgent] /api/graph 호출: {request.question}")
-
-        # 채팅 에이전트 사용 (graph.py 대체)
-        from app.agents.conversation.chat_agent import get_chat_agent
-
-        chat_agent = get_chat_agent()
-        print("[ChatAgent] 에이전트 실행 중...")
-
-        result = await chat_agent.execute("chat", {
-            "message": request.question,
-            "context": {}
-        })
-
-        answer = result.get("response", "답변을 생성할 수 없습니다.")
-        print(f"[ChatAgent] 답변 생성 완료: {answer[:100]}...")
-
-        # 문서 검색 (참조용)
-        retrieved_docs = []
-        if app.state.vectorstore:
-            try:
-                retrieved_docs = app.state.vectorstore.similarity_search(
-                    request.question, k=request.k
-                )
-                print(f"[ChatAgent] {len(retrieved_docs)}개 문서 검색됨 (참조용)")
-            except Exception as e:
-                print(f"[ChatAgent] 문서 검색 실패: {e}")
-
-        return {
-            "question": request.question,
-            "answer": answer,
-            "retrieved_documents": [
-                {
-                    "content": doc.page_content,
-                    "metadata": doc.metadata,
-                }
-                for doc in retrieved_docs
-            ],
-            "retrieved_count": len(retrieved_docs),
-        }
-    except Exception as e:
-        print(f"[ChatAgent] 오류: {str(e)}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"채팅 에이전트 오류: {str(e)}")
+    """채팅 에이전트 API - /api/graph 엔드포인트."""
+    # /rag 엔드포인트와 동일한 로직 사용
+    return await rag(request)
 
 
 @app.post("/documents", tags=["documents"])
@@ -550,86 +584,44 @@ async def add_documents(request: DocumentListRequest):
 
 @app.post("/research", tags=["orchestrator"])
 async def research_task(request: ResearchRequest):
-    """연구 오케스트레이터 실행 (research_orchestrator_main.py 통합)"""
-    try:
-        print(f"[연구] 연구 태스크 시작: {request.task[:100]}...")
-
-        # 연구 오케스트레이터 생성 및 실행
-        from app.orchestrator.orchestrator import create_research_orchestrator
-
-        orchestrator = await create_research_orchestrator()
-
-        # 연구 태스크 실행
-        result = await orchestrator.generate_str(
-            message=request.task,
-            request_params={
-                "model": request.model,
-                "maxTokens": request.max_tokens
-            }
-        )
-
-        print(f"[연구] 연구 태스크 완료: {len(result)}자")
-
-        return {
-            "task": request.task,
-            "result": result,
-            "model": request.model,
-            "status": "completed"
-        }
-
-    except Exception as e:
-        print(f"[연구] 오류 발생: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"연구 태스크 실행 오류: {str(e)}")
+    """연구 태스크 엔드포인트 (현재 미구현)."""
+    raise HTTPException(
+        status_code=501,
+        detail="연구 오케스트레이터 기능이 현재 비활성화되어 있습니다."
+    )
 
 
 @app.post("/spam-analysis", tags=["orchestrator"])
 async def spam_analysis_task(request: SpamAnalysisRequest):
-    """스팸 분석 워크플로우 실행 (research_orchestrator_main.py 통합)"""
-    try:
-        print(f"[스팸분석] 스팸 분석 시작: {request.email.get('subject', 'No subject')}")
-
-        # 연구 오케스트레이터 생성 및 실행
-        from app.orchestrator.orchestrator import create_research_orchestrator
-
-        orchestrator = await create_research_orchestrator()
-
-        # 스팸 분석 워크플로우 실행
-        result = await orchestrator.execute_workflow(
-            workflow_name="spam_analysis",
-            task="이메일 스팸 분석",
-            context={"email": request.email}
-        )
-
-        print(f"[스팸분석] 스팸 분석 완료")
-
-        return {
-            "email": request.email,
-            "result": result,
-            "summary": result.get('summary', 'No summary available'),
-            "status": "completed"
-        }
-
-    except Exception as e:
-        print(f"[스팸분석] 오류 발생: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"스팸 분석 워크플로우 오류: {str(e)}")
+    """스팸 분석 워크플로우 엔드포인트 (현재 미구현)."""
+    raise HTTPException(
+        status_code=501,
+        detail="스팸 분석 워크플로우 기능이 현재 비활성화되어 있습니다."
+    )
 
 
-# ===== 기존 라우터 포함 (호환성 유지) =====
-try:
-    app.include_router(search_router.router)
-    app.include_router(chat_router.router)
-    app.include_router(mcp_router.router)
-    app.include_router(orchestrator_router.router)
-    print("[성공] MCP 라우터 포함 완료")
-except Exception as e:
-    print(f"[경고] 라우터 포함 실패: {e}")
+# 라우터는 제거됨 (DB 테스트만 유지)
 
 
 # ===== 메인 실행 =====
 if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+
+    # 프로젝트 루트를 Python 경로에 추가
+    project_root = Path(__file__).parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+        print(f"[경로] 프로젝트 루트를 Python 경로에 추가: {project_root}")
+
     import uvicorn
+
+    print("\n" + "="*60)
+    print("[실행] FastAPI 서버 시작")
+    print("="*60)
+    print(f"[서버] http://127.0.0.1:8000 에서 실행됩니다")
+    print(f"[문서] http://127.0.0.1:8000/docs 에서 API 문서를 확인할 수 있습니다")
+    print("="*60 + "\n")
 
     uvicorn.run(
         "app.main:app",
