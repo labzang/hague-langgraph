@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.domain.admin.models.email_model import EmailRequest
+from app.domain.v10.product.models.email_model import EmailRequest
 
 email_router = APIRouter(prefix="/email", tags=["mail"])
 

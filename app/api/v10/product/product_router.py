@@ -6,12 +6,12 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 import json
 
-from app.domain.admin.models.product_model import (
+from app.domain.v10.product.models.product_model import (
     ProductModel,
     ProductCreateModel,
     ProductUpdateModel,
 )
-from app.domain.admin.orchestrators.product_flow import ProductFlow
+from app.domain.v10.product.orchestrators.product_flow import ProductFlow
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

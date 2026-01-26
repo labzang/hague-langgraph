@@ -9,8 +9,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
-from app.domain.admin.bases.consumers import Consumer
-from app.domain.admin.models.consumer_model import (
+from app.domain.v10.product.bases.consumers import Consumer
+from app.domain.v10.product.models.consumer_model import (
     ConsumerModel,
     ConsumerCreateModel,
     ConsumerUpdateModel,

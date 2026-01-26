@@ -7,8 +7,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from app.domain.admin.services.consumer_service import ConsumerService
-from app.domain.admin.agents.consumer_agent import ConsumerAgent
+from app.domain.v10.product.services.consumer_service import ConsumerService
+from app.domain.v10.product.agents.consumer_agent import ConsumerAgent
 
 logger = logging.getLogger(__name__)
 

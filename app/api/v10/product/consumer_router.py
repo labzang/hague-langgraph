@@ -4,12 +4,12 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
-from app.domain.admin.models.consumer_model import (
+from app.domain.v10.product.models.consumer_model import (
     ConsumerModel,
     ConsumerCreateModel,
     ConsumerUpdateModel,
 )
-from app.domain.admin.orchestrators.consumer_flow import ConsumerFlow
+from app.domain.v10.product.orchestrators.consumer_flow import ConsumerFlow
 
 router = APIRouter()
 

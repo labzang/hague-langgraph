@@ -7,8 +7,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from app.domain.admin.services.product_service import ProductService
-from app.domain.admin.agents.product_agent import ProductAgent
+from app.domain.v10.product.services.product_service import ProductService
+from app.domain.v10.product.agents.product_agent import ProductAgent
 
 logger = logging.getLogger(__name__)
 

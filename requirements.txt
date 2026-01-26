@@ -15,6 +15,9 @@ langchain-postgres>=0.0.1
 pgvector>=0.2.4
 psycopg2-binary>=2.9.5
 psycopg>=3.1.0
+asyncpg>=0.29.0
+alembic>=1.13.0
+sqlalchemy>=2.0.0
 
 # 추가 유틸리티
 python-dotenv>=1.0.0

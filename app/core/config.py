@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     """애플리케이션 설정."""
 
     # 데이터베이스 설정 (Neon 등 외부 Postgres 포함)
+    database_url: str = os.getenv("DATABASE_URL", "")
     postgres_host: str = os.getenv("POSTGRES_HOST", "postgres")
     postgres_port: str = os.getenv("POSTGRES_PORT", "5432")
     postgres_db: str = os.getenv("POSTGRES_DB", "langchain_db")
@@ -23,6 +24,10 @@ class Settings(BaseSettings):
     postgres_password: str = os.getenv("POSTGRES_PASSWORD", "langchain_password")
     # .env / 환경변수의 DATABASE_URL을 읽어올 필드
     database_url_env: Optional[str] = Field(default=None, alias="DATABASE_URL")
+    # 디버그 모드
+    debug: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
+    # 서버 포트
+    port: int = int(os.getenv("PORT", "8000"))
 
     @property
     def database_url(self) -> str:

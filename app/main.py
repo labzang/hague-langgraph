@@ -19,6 +19,8 @@ import time
 
 import uvicorn
 import psycopg2
+import subprocess
+import sys
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,119 +46,148 @@ logger = logging.getLogger(__name__)
 
 # 비동기 컨텍스트 매니저, 데이터베이스 초기화
 def test_neon_db_connection() -> dict:
-    """Neon DB 연결 테스트 및 상세 정보 반환."""
-    logger.info("="*60)
-    logger.info("[테스트] Neon DB 연결 테스트 시작")
-    logger.info("="*60)
+    """Neon DB 연결 테스트 및 상세 정보 반환.
 
-    # 설정 정보 출력
-    logger.info(f"[설정] DATABASE_URL 환경변수 존재 여부: {settings.database_url_env is not None}")
-    if settings.database_url_env:
-        parsed_url = urlparse(settings.database_url_env)
-        masked_url = f"{parsed_url.scheme}://{parsed_url.hostname}:{parsed_url.port}{parsed_url.path}"
-        logger.info(f"[설정] DATABASE_URL (마스킹됨): {masked_url}")
-    else:
-        logger.info(f"[설정] POSTGRES_HOST: {settings.postgres_host}")
-        logger.info(f"[설정] POSTGRES_PORT: {settings.postgres_port}")
-        logger.info(f"[설정] POSTGRES_DB: {settings.postgres_db}")
-        logger.info(f"[설정] POSTGRES_USER: {settings.postgres_user}")
+    서버 시작 시 한 번만 실행되며, 연결 실패 시 재시도하지 않고 로그만 남깁니다.
+    """
+    logger.info("[DB 연결] 데이터베이스 연결 테스트 시작...")
 
     final_url = settings.database_url
     parsed_final = urlparse(final_url)
     masked_final = f"{parsed_final.scheme}://{parsed_final.hostname}:{parsed_final.port}{parsed_final.path}"
-    logger.info(f"[설정] 최종 연결 문자열 (마스킹됨): {masked_final}")
-    logger.info("-"*60)
 
-    max_retries = 5
-    retry_count = 0
+    try:
+        conn = psycopg2.connect(settings.database_url)
 
-    while retry_count < max_retries:
+        cursor = conn.cursor()
+        cursor.execute("SELECT version();")
+        db_version = cursor.fetchone()[0]
+
         try:
-            logger.info(f"[시도] 연결 시도 {retry_count + 1}/{max_retries}...")
-            conn = psycopg2.connect(settings.database_url)
+            cursor.execute("SELECT * FROM pg_extension WHERE extname = 'vector';")
+            vector_ext = cursor.fetchone()
+            has_vector = vector_ext is not None
+        except Exception:
+            has_vector = False
 
-            cursor = conn.cursor()
-            cursor.execute("SELECT version();")
-            db_version = cursor.fetchone()[0]
-            logger.info(f"[성공] PostgreSQL 버전: {db_version}")
+        cursor.close()
+        conn.close()
 
-            try:
-                cursor.execute("SELECT * FROM pg_extension WHERE extname = 'vector';")
-                vector_ext = cursor.fetchone()
-                if vector_ext:
-                    logger.info("[성공] pgvector 확장이 설치되어 있습니다.")
-                else:
-                    logger.warning("[경고] pgvector 확장이 설치되어 있지 않습니다.")
-            except Exception as e:
-                logger.warning(f"[경고] pgvector 확장 확인 실패: {e}")
+        logger.info(f"[DB 연결] ✅ 연결 성공 (PostgreSQL {db_version.split(',')[0] if ',' in db_version else db_version})")
+        if has_vector:
+            logger.info("[DB 연결] pgvector 확장 확인됨")
 
-            cursor.close()
-            conn.close()
+        return {
+            "status": "success",
+            "database_version": db_version,
+            "connection_string": masked_final,
+            "has_vector_extension": has_vector
+        }
 
-            logger.info("="*60)
-            logger.info("[성공] ✅ Neon DB 연결 테스트 성공!")
-            logger.info("="*60)
+    except psycopg2.OperationalError as exc:
+        error_msg = str(exc)
+        logger.warning(f"[DB 연결] ❌ 연결 실패: {error_msg}")
+        logger.warning("[DB 연결] 서버는 계속 실행되지만 데이터베이스 기능이 제한될 수 있습니다.")
+        return {
+            "status": "failed",
+            "error": error_msg,
+        }
 
-            return {
-                "status": "success",
-                "database_version": db_version,
-                "connection_string": masked_final,
-                "has_vector_extension": vector_ext is not None if 'vector_ext' in locals() else False
-            }
+    except Exception as exc:
+        logger.error(f"[DB 연결] 예상치 못한 오류: {exc}")
+        return {
+            "status": "error",
+            "error": str(exc)
+        }
 
-        except psycopg2.OperationalError as exc:
-            retry_count += 1
-            error_msg = str(exc)
-            logger.warning(f"[실패] 연결 실패 ({retry_count}/{max_retries}): {error_msg}")
 
-            if retry_count < max_retries:
-                logger.info(f"[대기] 2초 후 재시도...")
-                time.sleep(2)
+async def run_auto_migrations():
+    """Alembic 마이그레이션 적용 (기존 마이그레이션만 적용, 자동 생성 없음)."""
+    logger.info("[마이그레이션] 기존 마이그레이션 적용 중...")
+
+    try:
+        # 마이그레이션 적용만 수행 (자동 생성 제거)
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent
+        )
+
+        if result.returncode == 0:
+            if "Target database is not up to date" in result.stderr:
+                logger.info("[마이그레이션] ✅ 마이그레이션 적용 완료")
+            elif result.stdout.strip():
+                logger.info("[마이그레이션] ✅ 마이그레이션 적용 완료")
             else:
-                logger.error("="*60)
-                logger.error("[실패] ❌ Neon DB 연결 테스트 실패!")
-                logger.error(f"[오류] 마지막 오류: {error_msg}")
-                logger.error("="*60)
+                logger.info("[마이그레이션] 이미 최신 상태입니다")
+        else:
+            # 실패해도 서버는 계속 실행
+            logger.warning(f"[마이그레이션] 마이그레이션 적용 경고: {result.stderr}")
+            logger.warning("[마이그레이션] 서버는 계속 실행되지만 마이그레이션이 적용되지 않았을 수 있습니다.")
 
-                return {
-                    "status": "failed",
-                    "error": error_msg,
-                    "retries": retry_count
-                }
-
-        except Exception as exc:
-            logger.error("="*60)
-            logger.error(f"[오류] 예상치 못한 오류 발생: {exc}")
-            logger.error("="*60)
-            return {
-                "status": "error",
-                "error": str(exc)
-            }
-
-    return {
-        "status": "failed",
-        "error": "최대 재시도 횟수 초과",
-        "retries": max_retries
-    }
+    except FileNotFoundError:
+        logger.warning("[마이그레이션] Alembic이 설치되지 않았습니다. 'pip install alembic'을 실행하세요.")
+    except Exception as e:
+        # 마이그레이션 실패해도 서버는 계속 실행
+        logger.warning(f"[마이그레이션] 마이그레이션 적용 중 오류 (무시됨): {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """애플리케이션 시작/종료 시 실행되는 함수."""
+    import asyncio
+
     # 시작 시
     logger.info("="*60)
     logger.info("[시작] FastAPI RAG 애플리케이션 시작 중...")
     logger.info("="*60)
 
     # Neon DB 연결 테스트
-    test_result = test_neon_db_connection()
-    app.state.db_test_result = test_result
+    try:
+        test_result = test_neon_db_connection()
+        app.state.db_test_result = test_result
+    except Exception as e:
+        logger.error(f"[오류] 데이터베이스 연결 테스트 실패: {e}")
+        app.state.db_test_result = {"error": str(e)}
+
+    # Alembic 마이그레이션 자동 적용
+    try:
+        await run_auto_migrations()
+    except Exception as e:
+        logger.error(f"[오류] 마이그레이션 자동 적용 실패: {e}")
+        logger.error(traceback.format_exc())
 
     logger.info("[완료] 애플리케이션 준비 완료!")
-    yield
 
-    # 종료 시
-    logger.info("[종료] 애플리케이션 종료 중...")
+    try:
+        yield
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # 정상적인 종료 신호 - 조용히 처리
+        pass
+    finally:
+        # 종료 시 정리 작업 (모든 예외를 조용히 처리)
+        try:
+            logger.info("[종료] 애플리케이션 종료 중...")
+
+            # 데이터베이스 연결 종료 (타임아웃 설정)
+            try:
+                from app.core.database import close_database
+                # 최대 3초 대기
+                await asyncio.wait_for(close_database(), timeout=3.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                # 타임아웃이나 취소는 정상적인 종료로 처리
+                pass
+            except Exception as e:
+                # 기타 예외는 경고만 로깅
+                logger.warning(f"[경고] 데이터베이스 종료 중 오류 (무시됨): {e}")
+
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            # 종료 중 취소 신호는 정상적인 종료로 처리
+            pass
+        except Exception:
+            # 모든 기타 예외는 조용히 무시 (종료 중이므로)
+            pass
 
 
 # FastAPI 인스턴스 생성
@@ -171,10 +202,21 @@ app = FastAPI(
 # 미들웨어 설정 (CORS, 로깅, 에러 처리)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 프로덕션에서는 특정 도메인으로 제한
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*",  # 개발 환경용, 프로덕션에서는 특정 도메인으로 제한
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ],
+    expose_headers=["*"],
 )
 
 
@@ -196,21 +238,54 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # 라우터 등록 (API 엔드포인트 정의)
-try:
-    # 프로젝트 루트를 Python 경로에 추가
-    project_root = Path(__file__).parent.parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+# 프로젝트 루트를 Python 경로에 추가
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 
+# Soccer player 라우터를 먼저 등록 (다른 라우터와 독립적으로)
+try:
+    from app.api.v10.soccer import player_router as soccer_player_router
+    api_v10_soccer_prefix = "/api/v10/soccer"
+    player_router_prefix = api_v10_soccer_prefix + "/player"
+
+    app.include_router(
+        soccer_player_router.router,
+        prefix=player_router_prefix,
+        tags=["soccer", "player"]
+    )
+    logger.info(f"[라우터] player_router 등록 완료")
+    logger.info(f"[라우터] 경로: {player_router_prefix}/upload")
+
+    # 등록된 라우터 확인
+    player_routes_found = []
+    for route in app.routes:
+        if hasattr(route, 'path') and 'player' in route.path:
+            methods = getattr(route, 'methods', set())
+            player_routes_found.append((route.path, methods))
+            logger.info(f"[라우터 확인] 등록된 경로: {route.path} (메서드: {methods})")
+
+    if not player_routes_found:
+        logger.warning("[라우터 경고] player 라우터가 등록되지 않았습니다!")
+    else:
+        logger.info(f"[라우터 확인] 총 {len(player_routes_found)}개의 player 라우터가 등록되었습니다.")
+except Exception as player_error:
+    logger.error(f"[라우터 오류] player_router 등록 실패: {player_error}")
+    logger.error(traceback.format_exc())
+
+# 다른 라우터 등록
+try:
     # Admin 라우터 등록
-    from app.api.v1.admin import (
+    from app.api.v10.product import (
         consumer_router,
         order_router,
         product_router,
         email_router,
     )
+    from app.api.v10.admin import upload_router
 
     api_prefix = "/api/v1/admin"
+    api_v10_prefix = "/api/v10/admin"
 
     app.include_router(
         consumer_router.router,
@@ -232,12 +307,16 @@ try:
         prefix=api_prefix+"/emails",
         tags=["emails"]
     )
-
-    logger.info("[성공] 라우터 등록 완료")
+    app.include_router(
+        upload_router.router,
+        prefix=api_v10_prefix,
+        tags=["admin", "upload"]
+    )
+    logger.info("[성공] 기타 라우터 등록 완료")
 except ImportError as e:
-    logger.warning(f"[경고] 라우터 import 실패: {e}")
+    logger.warning(f"[경고] 일부 라우터 import 실패: {e}")
 except Exception as e:
-    logger.error(f"[오류] 라우터 등록 실패: {e}")
+    logger.warning(f"[경고] 일부 라우터 등록 실패: {e}")
 
 
 # 루트 엔드포인트
@@ -248,6 +327,25 @@ async def root() -> dict:
         "message": "RAG API Server",
         "version": "1.0.0",
         "status": "running"
+    }
+
+
+# 등록된 라우터 확인 엔드포인트 (디버깅용)
+@app.get("/api/routes", tags=["debug"])
+async def get_routes() -> dict:
+    """등록된 모든 라우터 경로를 반환합니다 (디버깅용)."""
+    routes = []
+    for route in app.routes:
+        if hasattr(route, 'path') and hasattr(route, 'methods'):
+            routes.append({
+                "path": route.path,
+                "methods": list(route.methods) if route.methods else [],
+                "name": getattr(route, 'name', 'N/A')
+            })
+    return {
+        "total_routes": len(routes),
+        "routes": sorted(routes, key=lambda x: x["path"]),
+        "player_routes": [r for r in routes if "player" in r["path"]]
     }
 
 
@@ -272,16 +370,32 @@ async def health() -> dict:
 
 # ===== 메인 실행 =====
 if __name__ == "__main__":
+    # 포트 8000만 사용 (고정)
+    port = 8000
+
+    # 포트 사용 중인지 확인
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", port))
+        sock.close()
+    except OSError:
+        sock.close()
+        logger.error("="*60)
+        logger.error(f"[오류] 포트 {port}가 이미 사용 중입니다. 다른 프로세스를 종료하거나 포트를 해제해주세요.")
+        logger.error("="*60)
+        sys.exit(1)
+
     logger.info("\n" + "="*60)
     logger.info("[실행] FastAPI 서버 시작")
     logger.info("="*60)
-    logger.info(f"[서버] http://127.0.0.1:8000 에서 실행됩니다")
-    logger.info(f"[문서] http://127.0.0.1:8000/docs 에서 API 문서를 확인할 수 있습니다")
+    logger.info(f"[서버] http://127.0.0.1:{port} 에서 실행됩니다")
+    logger.info(f"[문서] http://127.0.0.1:{port}/docs 에서 API 문서를 확인할 수 있습니다")
     logger.info("="*60 + "\n")
 
     uvicorn.run(
         "app.main:app",
         host="127.0.0.1",
-        port=8000,
+        port=port,
         reload=settings.debug if hasattr(settings, "debug") else False,
     )

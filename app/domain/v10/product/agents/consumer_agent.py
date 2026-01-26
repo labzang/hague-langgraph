@@ -20,7 +20,7 @@ except ImportError:
     TRANSFORMERS_AVAILABLE = False
     logging.warning("transformers 또는 peft가 설치되지 않았습니다.")
 
-from app.domain.admin.agents.base_agent import BaseAgent
+from app.domain.v10.product.agents.base_agent import BaseAgent
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.domain.admin.bases.orders import OrderStatus
+from app.domain.v10.product.bases.orders import OrderStatus
 
 
 class OrderState(BaseModel):
