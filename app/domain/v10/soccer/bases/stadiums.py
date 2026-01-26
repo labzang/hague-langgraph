@@ -1,6 +1,6 @@
 """경기장(Stadium) SQLAlchemy 모델."""
 
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, BigInteger, String
 from sqlalchemy.orm import relationship
 
 from app.domain.shared.bases import Base
@@ -10,35 +10,42 @@ class Stadium(Base):
     """경기장 정보를 저장하는 SQLAlchemy 모델.
 
     Attributes:
-        stadium_id: 경기장 고유 식별자 (PK)
+        id: 경기장 고유 식별자 (PK, BigInt)
+        stadium_code: 경기장 코드
         statdium_name: 경기장 이름 (오타 포함, ERD 기준)
-        hometeam_id: 홈팀 ID
+        hometeam_code: 홈팀 코드
         seat_count: 좌석 수
         address: 주소
         ddd: 지역번호
         tel: 전화번호
     """
 
-    __tablename__ = "stadium"
+    __tablename__ = "stadiums"
 
     # 기본 키
-    stadium_id = Column(
-        String(10),
+    id = Column(
+        BigInteger,
         primary_key=True,
         comment="경기장 고유 식별자"
     )
 
     # 경기장 정보
+    stadium_code = Column(
+        String(10),
+        nullable=True,
+        comment="경기장 코드"
+    )
+
     statdium_name = Column(
         String(40),
         nullable=True,
         comment="경기장 이름"
     )
 
-    hometeam_id = Column(
+    hometeam_code = Column(
         String(10),
         nullable=True,
-        comment="홈팀 ID"
+        comment="홈팀 코드"
     )
 
     seat_count = Column(
@@ -60,21 +67,18 @@ class Stadium(Base):
     )
 
     tel = Column(
-        String(10),
+        String(20),
         nullable=True,
         comment="전화번호"
     )
 
     # 관계
-    schedules = relationship(
-        "Schedule",
-        back_populates="stadium",
-        cascade="all, delete-orphan"
-    )
-
     teams = relationship(
         "Team",
-        back_populates="stadium",
-        cascade="all, delete-orphan"
+        back_populates="stadium"
     )
 
+    schedules = relationship(
+        "Schedule",
+        back_populates="stadium"
+    )

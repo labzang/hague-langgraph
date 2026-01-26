@@ -1,6 +1,6 @@
 """선수(Player) SQLAlchemy 모델."""
 
-from sqlalchemy import Column, String, Integer, Date, ForeignKey
+from sqlalchemy import Column, String, Integer, BigInteger, Date, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.domain.shared.bases import Base
@@ -10,7 +10,8 @@ class Player(Base):
     """선수 정보를 저장하는 SQLAlchemy 모델.
 
     Attributes:
-        player_id: 선수 고유 식별자 (PK)
+        id: 선수 고유 식별자 (PK, BigInt)
+        team_id: 팀 ID (FK -> teams.id)
         player_name: 선수명
         e_player_name: 영문 선수명
         nickname: 별명
@@ -22,16 +23,23 @@ class Player(Base):
         solar: 양력/음력 구분
         height: 키 (cm)
         weight: 몸무게 (kg)
-        team_id: 팀 ID (FK -> team.team_id)
     """
 
-    __tablename__ = "player"
+    __tablename__ = "players"
 
     # 기본 키
-    player_id = Column(
-        String(10),
+    id = Column(
+        BigInteger,
         primary_key=True,
         comment="선수 고유 식별자"
+    )
+
+    # 외래 키
+    team_id = Column(
+        BigInteger,
+        ForeignKey("teams.id"),
+        nullable=True,
+        comment="팀 ID"
     )
 
     # 선수 정보
@@ -101,17 +109,8 @@ class Player(Base):
         comment="몸무게 (kg)"
     )
 
-    # 외래 키
-    team_id = Column(
-        String(10),
-        ForeignKey("team.team_id"),
-        nullable=True,
-        comment="팀 ID"
-    )
-
     # 관계
     team = relationship(
         "Team",
         back_populates="players"
     )
-

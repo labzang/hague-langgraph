@@ -1,6 +1,6 @@
 """팀(Team) SQLAlchemy 모델."""
 
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import Column, String, BigInteger, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.domain.shared.bases import Base
@@ -10,7 +10,9 @@ class Team(Base):
     """팀 정보를 저장하는 SQLAlchemy 모델.
 
     Attributes:
-        team_id: 팀 고유 식별자 (PK)
+        id: 팀 고유 식별자 (PK, BigInt)
+        stadium_id: 경기장 ID (FK -> stadiums.id)
+        team_code: 팀 코드
         region_name: 지역명
         team_name: 팀명
         e_team_name: 영문 팀명
@@ -23,19 +25,32 @@ class Team(Base):
         fax: 팩스번호
         homepage: 홈페이지
         owner: 구단주
-        stadium_id: 경기장 ID (FK -> stadium.stadium_id)
     """
 
-    __tablename__ = "team"
+    __tablename__ = "teams"
 
     # 기본 키
-    team_id = Column(
-        String(10),
+    id = Column(
+        BigInteger,
         primary_key=True,
         comment="팀 고유 식별자"
     )
 
+    # 외래 키
+    stadium_id = Column(
+        BigInteger,
+        ForeignKey("stadiums.id"),
+        nullable=True,
+        comment="경기장 ID"
+    )
+
     # 팀 정보
+    team_code = Column(
+        String(10),
+        nullable=True,
+        comment="팀 코드"
+    )
+
     region_name = Column(
         String(10),
         nullable=True,
@@ -85,35 +100,27 @@ class Team(Base):
     )
 
     tel = Column(
-        String(10),
+        String(20),
         nullable=True,
         comment="전화번호"
     )
 
     fax = Column(
-        String(10),
+        String(20),
         nullable=True,
         comment="팩스번호"
     )
 
     homepage = Column(
-        String(50),
+        String(100),
         nullable=True,
         comment="홈페이지"
     )
 
     owner = Column(
-        String(10),
+        String(50),
         nullable=True,
         comment="구단주"
-    )
-
-    # 외래 키
-    stadium_id = Column(
-        String(10),
-        ForeignKey("stadium.stadium_id"),
-        nullable=True,
-        comment="경기장 ID"
     )
 
     # 관계
@@ -127,4 +134,3 @@ class Team(Base):
         back_populates="team",
         cascade="all, delete-orphan"
     )
-
