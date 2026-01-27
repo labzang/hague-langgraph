@@ -4,13 +4,30 @@ JSONL 파일을 multipart/form-data로 받아서 처리합니다.
 """
 import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 
+from app.domain.v10.soccer.hub.orchestrators.player_orchestrator import PlayerOrchestrator
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# 오케스트레이터 인스턴스 (싱글톤 패턴)
+_orchestrator: Optional[PlayerOrchestrator] = None
+
+
+def get_orchestrator() -> PlayerOrchestrator:
+    """PlayerOrchestrator 싱글톤 인스턴스를 반환합니다.
+
+    Returns:
+        PlayerOrchestrator 인스턴스
+    """
+    global _orchestrator
+    if _orchestrator is None:
+        _orchestrator = PlayerOrchestrator()
+    return _orchestrator
 
 
 @router.post("/upload")
@@ -64,7 +81,7 @@ async def upload_player_jsonl(
                     detail=f"파일의 {line_num}번째 줄에서 JSON 파싱 오류: {str(e)}"
                 )
 
-        # 첫 5개 행만 추출
+        # 첫 5개 행만 추출 (로그용)
         first_five_items = items[:5]
 
         # 로그 출력
@@ -73,13 +90,19 @@ async def upload_player_jsonl(
         for idx, item in enumerate(first_five_items, start=1):
             logger.info(f"  [{idx}] {json.dumps(item, ensure_ascii=False, indent=2)}")
 
+        # 오케스트레이터를 통해 처리
+        logger.info("[선수 업로드] 오케스트레이터로 처리 시작...")
+        orchestrator = get_orchestrator()
+        processing_result = await orchestrator.process_players(items)
+
         response_data = {
             "success": True,
-            "message": "파일이 성공적으로 업로드되었습니다.",
+            "message": "파일이 성공적으로 업로드되고 처리되었습니다.",
             "filename": file.filename,
             "total_items": len(items),
             "first_five_items": first_five_items,
             "file_size": len(contents),
+            "processing_result": processing_result,
         }
 
         logger.info(f"[선수 업로드] 응답 준비 완료")
