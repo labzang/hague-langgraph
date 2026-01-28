@@ -250,6 +250,23 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
+# Soccer chat 라우터를 먼저 등록 (챗팅 질문 처리)
+try:
+    from app.api.v10.soccer.chat_router import router as soccer_chat_router
+    api_v10_soccer_prefix = "/api/v10/soccer"
+    chat_router_prefix = api_v10_soccer_prefix + "/chat"
+
+    app.include_router(
+        soccer_chat_router,
+        prefix=chat_router_prefix,
+        tags=["soccer", "chat"]
+    )
+    logger.info(f"[라우터] chat_router 등록 완료")
+    logger.info(f"[라우터] 경로: {chat_router_prefix}/query")
+except Exception as chat_error:
+    logger.error(f"[라우터 오류] chat_router 등록 실패: {chat_error}")
+    logger.error(traceback.format_exc())
+
 # Soccer player 라우터를 먼저 등록 (다른 라우터와 독립적으로)
 try:
     from app.api.v10.soccer.player_router import router as soccer_player_router

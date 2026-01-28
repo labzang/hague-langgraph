@@ -9,11 +9,17 @@ from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from app.domain.v10.soccer.hub.orchestrators.player_orchestrator import PlayerOrchestrator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class QueryRequest(BaseModel):
+    """질문 요청 모델"""
+    question: str
 
 # 오케스트레이터 인스턴스 (싱글톤 패턴)
 _orchestrator: Optional[PlayerOrchestrator] = None
@@ -153,5 +159,45 @@ async def upload_player_jsonl(
         raise HTTPException(
             status_code=500,
             detail=f"파일 처리 중 오류 발생: {str(e)}"
+        )
+
+
+@router.post("/query")
+async def process_query(request: QueryRequest) -> JSONResponse:
+    """사용자 질문을 처리합니다.
+
+    Args:
+        request: 질문 요청 객체
+
+    Returns:
+        처리 결과
+
+    Raises:
+        HTTPException: 처리 중 오류 발생 시
+    """
+    logger.info(f"[질문 처리] 질문 수신: {request.question}")
+    print(f"[player_router] 사용자 질문: {request.question}")
+
+    try:
+        orchestrator = get_orchestrator()
+        result = await orchestrator.process_query(request.question)
+        logger.info("[질문 처리] 오케스트레이터 처리 완료")
+
+        response_data = {
+            "success": True,
+            "question": request.question,
+            "result": result
+        }
+
+        logger.info(f"[질문 처리] 응답 준비 완료")
+        return JSONResponse(
+            status_code=200,
+            content=response_data
+        )
+    except Exception as e:
+        logger.error(f"[질문 처리 오류] {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"질문 처리 중 오류 발생: {str(e)}"
         )
 

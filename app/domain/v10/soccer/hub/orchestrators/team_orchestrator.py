@@ -250,3 +250,26 @@ class TeamOrchestrator:
 
         logger.info(f"[오케스트레이터] LangGraph 실행 완료: 전략={final_state.get('strategy_type', 'unknown')}")
         return result
+
+    async def process_query(self, question: str) -> Dict[str, Any]:
+        """사용자 질문을 처리합니다.
+
+        Args:
+            question: 사용자 질문
+
+        Returns:
+            처리 결과 딕셔너리
+        """
+        logger.info(f"[TeamOrchestrator] 질문 수신: {question}")
+        print(f"[TeamOrchestrator] 사용자 질문: {question}")
+
+        # 질문 처리 로직 (향후 확장 가능)
+        result = {
+            "success": True,
+            "question": question,
+            "message": "팀 질문이 성공적으로 수신되었습니다.",
+            "domain": "team"
+        }
+
+        logger.info(f"[TeamOrchestrator] 질문 처리 완료: {question}")
+        return result
