@@ -1,6 +1,7 @@
 """선수 데이터 정책 기반 에이전트."""
 import json
 import logging
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -46,7 +47,7 @@ class PlayerAgent:
         """
         current_file = Path(__file__)
         project_root = current_file.parent.parent.parent.parent.parent.parent
-        model_dir = project_root / "artifacts" / "exaone-2.4b"
+        model_dir = project_root / "artifacts" / "base-models" / "exaone-2.4b"
         return model_dir
 
     def _load_exaone_model(self, model_dir: Optional[Path] = None):
@@ -201,7 +202,303 @@ class PlayerAgent:
                     "error": str(e)
                 }
 
+        self._setup_filesystem_tools()
         logger.info("[FastMCP] ExaOne 툴 설정 완료")
+
+    def _setup_filesystem_tools(self) -> None:
+        """os와 pathlib 라이브러리를 사용한 파일 시스템 툴을 설정합니다."""
+        # 프로젝트 루트 경로 설정 (보안을 위해 제한)
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent
+
+        @self.mcp.tool()
+        def path_exists(path: str) -> Dict[str, Any]:
+            """경로가 존재하는지 확인합니다.
+
+            Args:
+                path: 확인할 경로 (상대 경로는 프로젝트 루트 기준)
+
+            Returns:
+                존재 여부 결과 딕셔너리
+            """
+            try:
+                path_obj = Path(path)
+                if not path_obj.is_absolute():
+                    path_obj = project_root / path_obj
+
+                # 보안: 프로젝트 루트 밖으로 나가는 것 방지
+                try:
+                    path_obj.resolve().relative_to(project_root.resolve())
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "프로젝트 루트 밖의 경로는 접근할 수 없습니다"
+                    }
+
+                exists = path_obj.exists()
+                is_file = path_obj.is_file() if exists else False
+                is_dir = path_obj.is_dir() if exists else False
+
+                return {
+                    "success": True,
+                    "path": str(path_obj),
+                    "exists": exists,
+                    "is_file": is_file,
+                    "is_dir": is_dir
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 경로 확인 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp.tool()
+        def list_directory(path: str = ".") -> Dict[str, Any]:
+            """디렉토리 내용을 나열합니다.
+
+            Args:
+                path: 나열할 디렉토리 경로 (기본값: 현재 디렉토리)
+
+            Returns:
+                디렉토리 내용 딕셔너리
+            """
+            try:
+                path_obj = Path(path)
+                if not path_obj.is_absolute():
+                    path_obj = project_root / path_obj
+
+                # 보안: 프로젝트 루트 밖으로 나가는 것 방지
+                try:
+                    path_obj.resolve().relative_to(project_root.resolve())
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "프로젝트 루트 밖의 경로는 접근할 수 없습니다"
+                    }
+
+                if not path_obj.exists():
+                    return {
+                        "success": False,
+                        "error": "경로가 존재하지 않습니다"
+                    }
+
+                if not path_obj.is_dir():
+                    return {
+                        "success": False,
+                        "error": "디렉토리가 아닙니다"
+                    }
+
+                items = []
+                for item in path_obj.iterdir():
+                    items.append({
+                        "name": item.name,
+                        "is_file": item.is_file(),
+                        "is_dir": item.is_dir(),
+                        "size": item.stat().st_size if item.is_file() else None
+                    })
+
+                return {
+                    "success": True,
+                    "path": str(path_obj),
+                    "items": sorted(items, key=lambda x: (not x["is_dir"], x["name"])),
+                    "count": len(items)
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 디렉토리 나열 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp.tool()
+        def read_file(file_path: str, encoding: str = "utf-8") -> Dict[str, Any]:
+            """파일 내용을 읽습니다.
+
+            Args:
+                file_path: 읽을 파일 경로
+                encoding: 파일 인코딩 (기본값: utf-8)
+
+            Returns:
+                파일 내용 딕셔너리
+            """
+            try:
+                path_obj = Path(file_path)
+                if not path_obj.is_absolute():
+                    path_obj = project_root / path_obj
+
+                # 보안: 프로젝트 루트 밖으로 나가는 것 방지
+                try:
+                    path_obj.resolve().relative_to(project_root.resolve())
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "프로젝트 루트 밖의 경로는 접근할 수 없습니다"
+                    }
+
+                if not path_obj.exists():
+                    return {
+                        "success": False,
+                        "error": "파일이 존재하지 않습니다"
+                    }
+
+                if not path_obj.is_file():
+                    return {
+                        "success": False,
+                        "error": "파일이 아닙니다"
+                    }
+
+                # 파일 크기 제한 (10MB)
+                file_size = path_obj.stat().st_size
+                if file_size > 10 * 1024 * 1024:
+                    return {
+                        "success": False,
+                        "error": "파일이 너무 큽니다 (10MB 제한)"
+                    }
+
+                content = path_obj.read_text(encoding=encoding)
+
+                return {
+                    "success": True,
+                    "path": str(path_obj),
+                    "content": content,
+                    "size": file_size,
+                    "encoding": encoding
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 파일 읽기 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp.tool()
+        def get_path_info(path: str) -> Dict[str, Any]:
+            """경로의 상세 정보를 조회합니다.
+
+            Args:
+                path: 조회할 경로
+
+            Returns:
+                경로 정보 딕셔너리
+            """
+            try:
+                path_obj = Path(path)
+                if not path_obj.is_absolute():
+                    path_obj = project_root / path_obj
+
+                # 보안: 프로젝트 루트 밖으로 나가는 것 방지
+                try:
+                    path_obj.resolve().relative_to(project_root.resolve())
+                except ValueError:
+                    return {
+                        "success": False,
+                        "error": "프로젝트 루트 밖의 경로는 접근할 수 없습니다"
+                    }
+
+                if not path_obj.exists():
+                    return {
+                        "success": True,
+                        "path": str(path_obj),
+                        "exists": False,
+                        "absolute_path": str(path_obj.resolve())
+                    }
+
+                stat_info = path_obj.stat()
+
+                return {
+                    "success": True,
+                    "path": str(path_obj),
+                    "absolute_path": str(path_obj.resolve()),
+                    "exists": True,
+                    "is_file": path_obj.is_file(),
+                    "is_dir": path_obj.is_dir(),
+                    "size": stat_info.st_size if path_obj.is_file() else None,
+                    "created": stat_info.st_ctime,
+                    "modified": stat_info.st_mtime,
+                    "parent": str(path_obj.parent),
+                    "name": path_obj.name,
+                    "stem": path_obj.stem,
+                    "suffix": path_obj.suffix
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 경로 정보 조회 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp.tool()
+        def join_paths(*paths: str) -> Dict[str, Any]:
+            """여러 경로를 결합합니다.
+
+            Args:
+                *paths: 결합할 경로들
+
+            Returns:
+                결합된 경로 딕셔너리
+            """
+            try:
+                combined = Path(*paths)
+                return {
+                    "success": True,
+                    "combined_path": str(combined),
+                    "parts": list(combined.parts)
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 경로 결합 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp.tool()
+        def get_environment_variable(name: str, default: Optional[str] = None) -> Dict[str, Any]:
+            """환경 변수를 읽습니다.
+
+            Args:
+                name: 환경 변수 이름
+                default: 기본값 (환경 변수가 없을 때)
+
+            Returns:
+                환경 변수 값 딕셔너리
+            """
+            try:
+                value = os.getenv(name, default)
+                return {
+                    "success": True,
+                    "name": name,
+                    "value": value,
+                    "exists": name in os.environ
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 환경 변수 읽기 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        @self.mcp.tool()
+        def get_current_directory() -> Dict[str, Any]:
+            """현재 작업 디렉토리를 반환합니다.
+
+            Returns:
+                현재 디렉토리 정보 딕셔너리
+            """
+            try:
+                cwd = Path.cwd()
+                return {
+                    "success": True,
+                    "current_directory": str(cwd),
+                    "absolute_path": str(cwd.resolve())
+                }
+            except Exception as e:
+                logger.error(f"[파일시스템 툴] 현재 디렉토리 조회 실패: {e}", exc_info=True)
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        logger.info("[FastMCP] 파일시스템 툴 설정 완료 (os, pathlib)")
 
     async def process_players(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """선수 데이터를 정책 기반으로 처리합니다.

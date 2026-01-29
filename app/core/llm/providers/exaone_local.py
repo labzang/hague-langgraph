@@ -41,7 +41,7 @@ def create_exaone_local_llm(model_dir: Optional[str] = None) -> LLMType:
 
     # 기본 모델 경로 설정
     if model_dir is None:
-        model_dir = Path(__file__).parent.parent.parent.parent / "model" / "exaone-2.4b"
+        model_dir = Path(__file__).parent.parent.parent.parent.parent / "artifacts" / "base-models" / "exaone-2.4b"
     else:
         model_dir = Path(model_dir)
 

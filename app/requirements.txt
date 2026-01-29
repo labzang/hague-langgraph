@@ -45,7 +45,7 @@ trl>=0.7.0
 
 # 양자화 및 최적화
 bitsandbytes>=0.41.0
-fastmcp>=0.1.0
+fastmcp>=2.14.4
 
 
 
